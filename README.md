@@ -26,6 +26,9 @@ You can deploy this server using Docker or Podman using the included Containerfi
 navigate into the repo directory and 
 
 `git checkout docker`
+
+and either
+
 `podman build -t bluestream:latest .`
 
 or
@@ -33,12 +36,16 @@ or
 `docker build -t bluestream:latest .`
 
 You can also directly build from the repo without doing a clone with:
+
 `podman build -t bluestream:latest https://github.com/Nitrousoxide/bluestream.git#docker`
 
 or
 
 `docker build -t bluestream:latest https://github.com/Nitrousoxide/bluestream.git#docker`
+
 which will create a temporary clone of the repo for the build and then delete it when complete.
+
+---
 
 create an .env file with 
 ```
