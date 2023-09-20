@@ -56,6 +56,7 @@ BLUESKY_PASSWORD=your-pass
 It is recommended you make this outside of the repo's directory (if you don't build directly from the repo in the cloud) so it won't get included in the container image in later builds.
 
 and run:
+
 `podman run -d -v /path/to/env/file/on/host/.env:/app/.env:z -p 8000:8000 bluestream:latest`
 
 or
