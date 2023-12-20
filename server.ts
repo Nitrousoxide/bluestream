@@ -1,9 +1,10 @@
-import {
-  sanitize,
-  tagNoVoid as tag,
-} from "https://deno.land/x/markup_tag@0.4.0/mod.ts";
+import { login } from "./login.ts";
+import { BLUESKY_SERVICE, IS_DEV } from "./constants.ts";
+import { toUTCString, uriToPostLink } from "./utils.ts";
 
-import AtoprotoAPI, { AppBskyActorDefs } from "npm:@atproto/api@0.6.10";
+import { sanitize, tagNoVoid as tag } from "markup_tag";
+
+import AtoprotoAPI, { AppBskyActorDefs } from "@atproto/api";
 const {
   // AppBskyActorDefsをimportしていても一部でcannot find namespaceエラーが出る
   // したがってエラーが出る箇所はAtoprotoAPI.AppBskyFeedDefsを使用する
@@ -14,52 +15,28 @@ const {
   AppBskyEmbedRecordWithMedia,
   AppBskyFeedPost,
   AppBskyRichtextFacet,
-  BskyAgent,
 } = AtoprotoAPI;
 
-const isDev = !Deno.env.get("DENO_DEPLOYMENT_ID");
+const agent = await login();
 
-if (isDev) {
-  const env = await Deno.readTextFile("./.env");
-  env.split("\n").forEach((line) => {
-    if (line) {
-      const [key, val] = line.split("=");
-      Deno.env.set(key, val);
-    }
-  });
-}
-
-const service = "https://bsky.social";
-const agent = new BskyAgent({ service });
-
-const identifier = Deno.env.get("BLUESKY_IDENTIFIER") || "";
-const password = Deno.env.get("BLUESKY_PASSWORD") || "";
-await agent.login({ identifier, password });
-
-function toUTCString(dateString?: string) {
-  if (!dateString) {
-    return "";
-  }
-  return (new Date(dateString)).toUTCString();
-}
-function getDidFromUri(uri: string) {
-  return uri.replace(/^at:\/\//, "").replace(
-    /\/app\.bsky\.feed.*$/,
-    "",
-  );
-}
-function uriToPostLink(uri: string, usePsky: boolean) {
-  const origin = usePsky ? "psky.app" : "bsky.app";
-  return `https://${origin}/profile/${
-    uri.replace(/^at:\/\//, "").replace(
-      /app\.bsky\.feed\./,
-      "",
-    )
-  }`;
-}
 function getEmbedImages(post: AtoprotoAPI.AppBskyFeedDefs.PostView) {
   return AppBskyEmbedImages.isView(post.embed) ? post.embed.images : [];
 }
+
+// $typeが含まれていないので正常に判定できないものを自前実装
+// deno-lint-ignore no-explicit-any
+function isReplyRef(v: any): v is AtoprotoAPI.AppBskyFeedPost.ReplyRef {
+  return !!v && typeof v === "object" && Object.hasOwn(v, "root") &&
+    AppBskyFeedDefs.isPostView(v.root) && Object.hasOwn(v, "parent") &&
+    AppBskyFeedDefs.isPostView(v.parent);
+}
+function isProfileViewBasic(
+  v: unknown,
+): v is AtoprotoAPI.AppBskyActorDefs.ProfileViewBasic {
+  return !!v && typeof v === "object" && Object.hasOwn(v, "did") &&
+    Object.hasOwn(v, "handle");
+}
+
 function genTitle(
   author: AppBskyActorDefs.ProfileViewDetailed,
   feed: AtoprotoAPI.AppBskyFeedDefs.FeedViewPost,
@@ -72,10 +49,8 @@ function genTitle(
     }`;
   }
   let title = `Post by ${handle}`;
-  if (AppBskyFeedPost.isReplyRef(reply)) {
-    title = `${title}, reply to ${
-      actors[getDidFromUri(reply.parent.uri)].handle
-    }`;
+  if (isReplyRef(reply) && isProfileViewBasic(reply.parent.author)) {
+    title = `${title}, reply to ${reply.parent.author.handle || "unknown"}`;
   }
   if (post.embed) {
     if (AppBskyEmbedRecord.isViewRecord(post.embed.record)) {
@@ -170,7 +145,7 @@ async function getActor(
 
 Deno.serve(async (request: Request) => {
   const { href, pathname, searchParams } = new URL(request.url);
-  if (isDev) {
+  if (IS_DEV) {
     console.log(pathname);
   }
 
@@ -230,12 +205,6 @@ Deno.serve(async (request: Request) => {
     ) return false;
     return true;
   });
-  for await (const feed of feeds) {
-    if (AppBskyFeedPost.isReplyRef(feed.reply)) {
-      // store actors
-      await getActor(getDidFromUri(feed.reply.parent.uri));
-    }
-  }
 
   const firstPost = feeds.at(0)?.post;
 
@@ -255,7 +224,7 @@ Deno.serve(async (request: Request) => {
         sanitize(href)
       }" rel="self" type="application/rss+xml" />`,
       tag("link", `https://bsky.app/profile/${did}`),
-      tag("description", `${handle}'s posts in ${service}`),
+      tag("description", `${handle}'s posts in ${BLUESKY_SERVICE}`),
       AppBskyFeedDefs.isPostView(firstPost) &&
         AppBskyFeedPost.isRecord(firstPost.record)
         ? tag("lastBuildDate", toUTCString(firstPost.record.createdAt))
